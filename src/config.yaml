@@ -4,6 +4,8 @@ split:
   validation_size: 0.1
   test_size: 0.1
   random_state: 42
+cross_validation:
+  folds: 5
 models:
   logistic_regression:
     type: logistic_regression
@@ -13,7 +15,7 @@ models:
       solver: liblinear
   decision_tree:
     type: decision_tree
-    # User-provided notebook best parameters; reported CV ROC AUC: 0.9709776364989262.
+    # Historical notebook parameters, not re-tuned for the current feature set.
     # Strip classifier__ because params are passed directly to the classifier.
     params:
       criterion: gini
