@@ -1,8 +1,8 @@
-# HDB 转售房价格分类
+# HDB Resale Price Classification
 
-使用房屋属性预测 `price_category`：Below Median = 0，Above Median = 1。
+Predict whether an HDB resale transaction is priced above or below the median using property attributes. The target is `price_category`: **Below Median = 0**, **Above Median = 1**.
 
-## 项目结构
+## Project Structure
 
 ```text
 root/
@@ -18,57 +18,95 @@ root/
 └── main.py
 ```
 
-## 安装与运行
+## Setup and Usage
 
-需要 Python 3.10 或以上版本，在项目根目录运行：
+Python 3.10 or later is required. Run the following commands from the project root:
 
-```bash
+```powershell
 python -m venv .venv
-# Windows PowerShell:
+# Activate the environment in Windows PowerShell:
 .venv/Scripts/Activate.ps1
 python -m pip install -r requirements.txt
+
+# Train both configured models:
 python main.py
-# 自定义配置：
+
+# Use a custom configuration:
 python main.py --config src/config.yaml
-# 仅训练指定模型（默认训练全部）：
+
+# Train only one model:
 python main.py --model decision_tree
-# 探索数据：
+python main.py --model logistic_regression
+
+# Open the exploratory notebook:
 jupyter lab eda.ipynb
 ```
 
-默认数据为原始 `resale_transactions_categorised.csv`，现已重命名为
-`data/data.csv`；数据仍由 .gitignore 排除，不随仓库提交。其他环境需要自行放置同样的 CSV。
-数据至少需要 `month`, `flat_type`, `block`, `street_name`, `storey_range`,
-`floor_area_sqm`, `lease_commence_date`, `remaining_lease`, `town_id`,
-`flatm_id`, `price_category` 列。
+## Data
 
-## 处理和训练
+The original dataset, `resale_transactions_categorised.csv`, has been renamed to `data/data.csv`. Data files are excluded from version control by `.gitignore`; place the CSV at this path before running the project on another machine.
 
-- 规范列名、移除全空行及完全重复行；缺失或未知目标标签会报错。
-- 将剩余租约转换为月数，交易月份拆为年/月，楼层范围转换为中点。
-- 使用 town_id / flatm_id 作为类别特征；不使用记录 id 和冗余名称列。
-  不需要从全量数据推导 ID 到名称的映射。
-- 按标签分层划分训练/验证/测试集，默认 80% / 10% / 10%，随机种子为 42。
-- 缺失值填补、数值标准化和类别独热编码仅在训练集拟合，未知类别可直接预测。
-- 保留逻辑回归和决策树两种模型，使用相同训练/验证/测试划分，分别输出 accuracy、F1、ROC AUC、混淆矩阵和分类报告。
-  逻辑回归会标准化数值特征，决策树跳过标准化；两者独立拟合预处理。
-  混淆矩阵的行是真实类别、列是预测类别，顺序为 [Below Median, Above Median]。
-- `src/config.yaml` 的 `models` 下按名称配置 `type` 和 `params`，参数直接传给相应 sklearn 分类器。
-  支持 `logistic_regression` 和 `decision_tree`；随机种子默认继承 `split.random_state`，可通过模型参数覆盖。
-  决策树已配置用户提供的 notebook 最佳参数：`max_depth=20`、`min_samples_leaf=10`、
-  `min_samples_split=50`。原实验报告的交叉验证 ROC AUC 为 `0.9709776364989262`，
-  此分数未在当前流程中重新做交叉验证；当前运行独立生成验证集和测试集指标。
-  原搜索参数的 `classifier__` 前缀属于 Pipeline 参数命名，在这里直接传给分类器，因此需去掉前缀。
-- 每个模型分别保存到 `artifacts/<模型名称>/`：
-  - `pipeline.joblib`：拟合后的完整预处理和分类管道，推荐用于预测。
-  - `preprocessor.joblib`：独立保存的预处理管道。
-  - `model.joblib`：独立保存的分类器，输入必须先经过对应预处理器转换。
-  - `metrics.json`：该模型的验证集、测试集指标及样本量。
-  - `config.yaml`：该次运行的数据路径、划分及所选模型参数。
-  同名模型再次运行会覆盖该目录中的产物；旧版根目录下的产物不再更新。
-  调参使用验证集，最终测试集仅用于最终评估。
+Required columns:
 
-## 加载模型预测
+```text
+month, flat_type, block, street_name, storey_range,
+floor_area_sqm, lease_commence_date, remaining_lease,
+town_id, flatm_id, price_category
+```
+
+## Data Preparation
+
+- Normalize column names and remove entirely empty rows and exact duplicates. Missing or unknown target labels raise an error.
+- Convert remaining lease duration to months, extract the transaction year and month, and convert storey ranges to their midpoints.
+- Treat `town_id` and `flatm_id` as categorical features. Exclude record `id` and redundant name columns, avoiding ID-to-name mappings learned from the entire dataset.
+- Use the same stratified training, validation, and test split for both models: **80% / 10% / 10%**, with a default random seed of **42**.
+- Fit missing-value imputation and one-hot encoding on the training set only. Unknown categories are supported during prediction.
+- Standardize numeric features for logistic regression; skip standardization for the decision tree. Each model fits its own preprocessing pipeline.
+
+## Models and Configuration
+
+Configure each model under `models` in `src/config.yaml`. Each entry specifies a `type` and a `params` mapping, passed directly to the corresponding scikit-learn classifier.
+
+Supported types are `logistic_regression` and `decision_tree`. Each classifier inherits `split.random_state` unless its own `random_state` parameter is provided.
+
+The decision tree uses the best parameters supplied from the notebook experiment:
+
+```yaml
+models:
+  decision_tree:
+    type: decision_tree
+    params:
+      criterion: gini
+      max_depth: 20
+      min_samples_leaf: 10
+      min_samples_split: 50
+```
+
+The original experiment reported a best cross-validation ROC AUC of **0.9709776364989262**. This score has not been reproduced through cross-validation in the current training entry point, which independently reports validation and test metrics.
+
+The original search used names such as `classifier__max_depth`. Remove the `classifier__` prefix here because these parameters are passed directly to the classifier rather than to the enclosing pipeline.
+
+Use cross-validation on the training set or the validation set for model and parameter selection. Reserve the test set for final evaluation.
+
+## Evaluation and Saved Artifacts
+
+Each model reports accuracy, F1, ROC AUC, a confusion matrix, and a classification report for both validation and test sets. Confusion matrix rows represent actual classes and columns represent predicted classes, ordered as `[Below Median, Above Median]`.
+
+Artifacts are saved separately under `artifacts/<model_name>/`:
+
+| File | Contents |
+| --- | --- |
+| `pipeline.joblib` | Fitted preprocessing and classifier pipeline; recommended for prediction. |
+| `preprocessor.joblib` | Fitted preprocessing pipeline saved separately. |
+| `model.joblib` | Fitted classifier; inputs must first be transformed by its matching preprocessor. |
+| `metrics.json` | Validation and test metrics, model name, and sample counts. |
+| `config.yaml` | Data path, split settings, and selected model configuration for the run. |
+
+Running a model again overwrites its artifacts. Legacy files directly under `artifacts/` are no longer updated. Generated artifacts are excluded from version control.
+
+## Prediction
+
+Run this example from the project root after training:
 
 ```python
 import joblib
@@ -77,16 +115,15 @@ from src.data_preparation import engineer_features
 
 model = joblib.load("artifacts/decision_tree/pipeline.joblib")
 raw = pd.read_csv("data/data.csv").head()
-predictions = model.predict(engineer_features(raw))  # 输入不需要目标列
+predictions = model.predict(engineer_features(raw))  # No target column required.
 ```
 
-## Review 与限制
+Use `artifacts/logistic_regression/pipeline.joblib` to load the logistic regression pipeline instead.
 
-原有 Python 模块、配置、依赖和 README 为空，notebook 中存在记录 ID 入模、
-目标映射不校验、清洗逻辑无法复用等问题。本次补齐完整流程，并让 EDA 复用清洗与切分函数。
-notebook 保留原有探索内容；原有名称清洗仅作为 EDA 展示，不参与训练。
+## Review Notes and Limitations
 
-当前划分衡量的是同一数据分布下的随机留出表现。如果要预测未来交易，应使用按时间划分，
-并确认价格中位数阈值的来源和计算时点；现有 CSV 无法验证标签生成过程是否使用未来信息。
-完全重复行会移除，但不推断不同 ID 的相似记录是否为同一笔交易。
-依赖使用兼容范围而非锁文件；复现实验时应固定实际安装版本。
+The refactoring fills the previously empty training modules, configuration, dependency list, and README. It excludes record IDs from model features, validates target labels, and makes cleaning and splitting functions reusable from the EDA notebook. Exploratory display-name cleaning remains in the notebook and does not affect training.
+
+The random holdout split measures performance within the same data distribution. For future transaction prediction, use a chronological split and verify how and when the median price threshold was calculated. The available CSV cannot establish whether target generation used future information.
+
+Only exact duplicates are removed; similar records with different IDs are not assumed to represent the same transaction. Dependencies use compatible version ranges rather than a lock file. Pin the installed versions when reproducing experiments.
